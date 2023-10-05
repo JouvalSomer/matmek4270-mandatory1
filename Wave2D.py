@@ -37,7 +37,7 @@ class Wave2D:
 
     def ue(self, mx, my):
         """Return the exact standing wave"""
-        return sp.sin(mx*sp.pi*x)*sp.sin(my*sp.pi*(-y))*sp.cos(self.w*t)
+        return sp.sin(mx*sp.pi*x)*sp.sin(my*sp.pi*y)*sp.cos(self.w*t)
     
     @property
     def dt(self):
