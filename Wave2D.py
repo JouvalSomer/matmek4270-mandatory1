@@ -11,10 +11,24 @@ x, y, t = sp.symbols('x,y,t')
 
 class Wave2D:
     def __init__(self):
+        """Initialize the Wave2D class with default parameters."""
         self.L = 1.0  # Assuming domain is [0, 1] x [0, 1]
 
     def create_mesh(self, N, sparse=False):
-        """Create 2D mesh and store in self.xij and self.yij"""
+        """Create a 2D mesh grid.
+
+        Parameters
+        ----------
+        N : int
+            Number of grid points in each dimension.
+        sparse : bool, optional
+            If True, creates a sparse mesh grid.
+
+        Returns
+        -------
+        xij, yij : ndarray, ndarray
+            Meshgrid for x and y coordinates.
+        """
         self.N = N
         self.h = self.L / N 
         x = np.linspace(0, self.L, N + 1)
@@ -23,7 +37,18 @@ class Wave2D:
         return self.xij, self.yij
 
     def D2(self, N):
-        """Return second order differentiation matrix"""
+        """Create a second-order differentiation matrix for the Dirichlet problem.
+
+        Parameters
+        ----------
+        N : int
+            Number of grid points in each dimension.
+
+        Returns
+        -------
+        D : sparse matrix
+            The second-order differentiation matrix.
+        """
         D = sparse.diags([1, -2, 1], [-1, 0, 1], (N+1, N+1), 'lil')
         D[0, :4] = 2, -5, 4, -1
         D[-1, -4:] = -1, 4, -5, 2
@@ -38,7 +63,7 @@ class Wave2D:
         return self.c * sp.sqrt(kx**2 + ky**2)
 
     def ue(self, mx, my):
-        """Return the exact standing wave"""
+        """Return the exact standing wave for the DIrichlet problem"""
         return sp.sin(mx*sp.pi*x)*sp.sin(my*sp.pi*y)*sp.cos(self.w*t)
     
     @property
@@ -91,7 +116,7 @@ class Wave2D:
 
 
     def apply_bcs(self):
-        """Apply boundary conditions"""
+        """Apply Dirichlet boundary conditions to the next time step solution."""
         self.Unp1[0, :] = 0
         self.Unp1[-1, :] = 0
         self.Unp1[:, 0] = 0
@@ -202,8 +227,23 @@ class Wave2D:
         return r, np.array(E), np.array(h)
     
     
-def plot(xij, yij, data, title):
+def plot(xij, yij, data):
+    """Plot the 3D surface of the solution.
+
+    Parameters
+    ----------
+    xij : ndarray
+        Meshgrid for x-axis.
+    yij : ndarray
+        Meshgrid for y-axis.
+    data : dict
+        Dictionary containing the solution at different time steps.
+    """
     fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+
+    ax.set_xlabel('X-axis')  # Set x-axis label
+    ax.set_ylabel('Y-axis')  # Set y-axis label
+    ax.set_title('Wave2D Solution')  # Set plot title
 
     z_min = np.min([np.min(matrix) for matrix in data.values()])
     z_max = np.max([np.max(matrix) for matrix in data.values()])
@@ -228,8 +268,7 @@ def plot(xij, yij, data, title):
         ax.set_zlim([z_min, z_max])  # set the z-axis limits here
         return wire,
 
-
-    total_time = 10  # total time for the animation in seconds
+    total_time = 4  # total time for the animation in seconds
     frames = range(0, len(data), 1)  # Number of frames in the animation
     FPS = int(len(frames) / total_time)  # Calculate FPS based on total time and number of frames
     interval = int(1000 / FPS)  # Interval in milliseconds
@@ -237,18 +276,31 @@ def plot(xij, yij, data, title):
     ani = animation.FuncAnimation(fig, animate_wireframe, frames=frames, init_func=init_wireframe, interval=interval, blit=True, repeat_delay=1000)
     # ani = animation.FuncAnimation(fig, animate_surface, frames=frames, init_func=init_surface, interval=interval, blit=True, repeat_delay=1000)
 
-    ani.save(f'wavemovie2d_{title}.gif', writer='pillow', fps=FPS)
+    ani.save(f'neumannwave.gif', writer='pillow', fps=FPS)
+
 
 class Wave2D_Neumann(Wave2D):
 
     def D2(self, N):
+        """Create a second-order differentiation matrix for the Neumann problem.
+
+        Parameters
+        ----------
+        N : int
+            Number of grid points in each dimension.
+
+        Returns
+        -------
+        D : sparse matrix
+            The second-order differentiation matrix.
+        """
         D = sparse.diags([1, -2, 1], [-1, 0, 1], (N+1, N+1), 'lil')
         D[0, :2] = -2, 2
         D[-1, -2:] = 2, -2
         return D / self.h ** 2
 
     def ue(self, mx, my):
-        """Return the exact standing wave"""
+        """Return the exact standing wave for the Neumann problem"""
         return sp.cos(mx * sp.pi * x) * sp.cos(my * sp.pi * y) * sp.cos(self.w * t)
 
     def apply_bcs(self):
@@ -260,16 +312,34 @@ class Wave2D_Neumann(Wave2D):
 
 
 def test_convergence_wave2d():
+    """Test for convergence of the Wave2D class.
+
+    This function creates an instance of the Wave2D class and computes
+    the convergence rates, errors, and mesh sizes. It then asserts that the
+    rate of convergence is close to 2, as expected for a second-order method.
+    """
     sol = Wave2D()
     r, E, h = sol.convergence_rates(mx=2, my=3)
     assert abs(r[-1]-2) < 1e-2
 
 def test_convergence_wave2d_neumann():
+    """Test for convergence of the Wave2D_Neumann class.
+
+    This function creates an instance of the Wave2D_Neumann class and computes
+    the convergence rates, errors, and mesh sizes. It then asserts that the
+    rate of convergence is close to 2, as expected for a second-order method.
+    """
     solN = Wave2D_Neumann()
     r, E, h = solN.convergence_rates(mx=2, my=3)
     assert abs(r[-1]-2) < 0.05
 
 def test_exact_wave2d():
+    """Test for verifying the exactness of the Wave2D and Wave2D_Neumann solutions.
+
+    This function creates instances of both the Wave2D and Wave2D_Neumann classes
+    and computes their solutions. It then asserts that the error between the computed
+    and exact solutions is very small, essentially zero within machine precision.
+    """
     N = 10
     Nt = 2
 
@@ -286,29 +356,17 @@ if __name__=='__main__':
     test_convergence_wave2d_neumann()
     test_exact_wave2d()
 
-    # N = 100 # The number of uniform intervals in each direction
-    # Nt = 100 # Number of time steps
+    N = 80 # The number of uniform intervals in each direction
+    Nt = 40 # Number of time steps
 
-    # # Extract the mesh grids for plotting
-    # xij = wave2d_solver.xij
-    # yij = wave2d_solver.yij
+    # Create an instance and solve the 2d wave equation for Neumann bc
+    wave2d_solver = Wave2D_Neumann()
+    data = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=2, my=2, store_data=1)
 
-    # # Create an instance and solve
-    # wave2d_solver = Wave2D()
-    # dx, err = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=-1)
-    # data = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=1)
+    # Extract the mesh grids for plotting
+    xij = wave2d_solver.xij
+    yij = wave2d_solver.yij
 
-
-    # print('Making the animation of the solution. This may take some time.')
-    # plot(xij, yij, data, title='Dirichlet')
-
-
-    # # Create an instance and solve
-    # wave2d_solver = Wave2D_Neumann()
-    # dx, err = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=-1)
-    # data = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=1)
-
-
-    # print('Making the animation of the solution. This may take some time.')
-    # plot(xij, yij, data, title='Neumann')
+    print('Making the animation of the solution. This may take some time.')
+    plot(xij, yij, data)
 
