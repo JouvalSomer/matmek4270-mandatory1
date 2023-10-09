@@ -1,1 +1,1 @@
-Put the report here either as a notebook or as a pdf.
+![2dWave](./neumannwave.gif)
