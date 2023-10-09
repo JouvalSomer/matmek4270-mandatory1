@@ -16,7 +16,7 @@ class Wave2D:
     def create_mesh(self, N, sparse=False):
         """Create 2D mesh and store in self.xij and self.yij"""
         self.N = N
-        self.h = self.L / N  # Adjusting for the domain [0, 1]
+        self.h = self.L / N 
         x = np.linspace(0, self.L, N + 1)
         y = np.linspace(0, self.L, N + 1)
         self.xij, self.yij = np.meshgrid(x, y, indexing='ij', sparse=sparse)
@@ -33,7 +33,9 @@ class Wave2D:
     def w(self):
         """Return the dispersion coefficient"""
         # Assuming self.mx and self.my are the wave numbers in x and y directions
-        return self.c**2 * (self.mx**2 + self.my**2)
+        kx = self.mx*sp.pi
+        ky = self.my*sp.pi
+        return self.c * sp.sqrt(kx**2 + ky**2)
 
     def ue(self, mx, my):
         """Return the exact standing wave"""
@@ -59,28 +61,17 @@ class Wave2D:
 
         ue_symbolic = self.ue(mx, my)
         ue_func = lambdify((x, y, t), ue_symbolic, 'numpy')
+
         ue_evaluated = ue_func(self.xij, self.yij, 0)
         self.Unm1[:] = ue_evaluated
 
-        D = self.D2(N)
-        self.Un[:] = self.Unm1[:] + 0.5 * (self.c * self.dt) ** 2 * (D @ self.Unm1 + self.Unm1 @ D.T)
+        # D = self.D2(N)
+        ue_evaluated = ue_func(self.xij, self.yij, self.dt)
+        self.Un[:] = ue_evaluated
+        # self.Un[:] = self.Unm1 + 0.5 * (self.c * self.dt) ** 2 * (D @ self.Unm1 + self.Unm1 @ D.T)
 
-    # def l2_error(self, u, t0):
-    #     """Return l2-error norm
-    #     Parameters
-    #     ----------
-    #     u : array
-    #         The solution mesh function
-    #     t : number
-    #         The time of the comparison
-    #     """
-    #     ue_symbolic = self.ue(self.mx, self.my)
-    #     ue_func = lambdify((x, y, t), ue_symbolic, 'numpy')
-    #     ue_evaluated = ue_func(self.xij, self.yij, t0)
 
-    #     err = np.sqrt(self.h ** 2 * np.sum((u - ue_evaluated) ** 2))
-    #     return err
-    def l2_error(self, u, t0, diagnostic_plot=False):
+    def l2_error(self, u, t0):
         """Return l2-error norm
         Parameters
         ----------
@@ -96,31 +87,6 @@ class Wave2D:
         ue_evaluated = ue_func(self.xij, self.yij, t0)
         
         err = np.sqrt(self.h ** 2 * np.sum((u - ue_evaluated) ** 2))
-        
-        if diagnostic_plot:
-            fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-
-            # Find global vmin and vmax
-            global_vmin = min(u.min(), ue_evaluated.min())
-            global_vmax = max(u.max(), ue_evaluated.max())
-
-            # Plotting with the same color scale
-            im1 = axs[0].imshow(u, origin='lower', extent=[0, self.L, 0, self.L], cmap='viridis', vmin=global_vmin, vmax=global_vmax)
-            axs[0].set_title(f'Numerical Solution at t={t0}')
-
-            im2 = axs[1].imshow(ue_evaluated, origin='lower', extent=[0, self.L, 0, self.L], cmap='viridis', vmin=global_vmin, vmax=global_vmax)
-            axs[1].set_title(f'Analytical Solution at t={t0}')
-
-            # Single colorbar
-            cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
-            fig.colorbar(im1, cax=cbar_ax)
-
-            fig.suptitle(f'l2 error = {err}')
-            plt.show()
-
-
-            pass
-        
         return err
 
 
@@ -164,6 +130,7 @@ class Wave2D:
         
         # Initialize
         self.initialize(N, mx, my)
+
         dt = self.dt
 
         # For storing data
@@ -177,22 +144,19 @@ class Wave2D:
         # Time stepping
         for n in range(1, Nt+1):
             # Compute the next time step
-            self.Unp1 = 2 * self.Un - self.Unm1 + (self.c * dt) ** 2 * (D @ self.Un + self.Un @ D.T)
+            self.Unp1[:] = 2 * self.Un - self.Unm1 + (self.c * dt) ** 2 * (D @ self.Un + self.Un @ D.T)
             
             # Apply boundary conditions
             self.apply_bcs()
 
             # Shift variables for the next time step
-            self.Unm1, self.Un = self.Un, self.Unp1
+            self.Unm1[:] = self.Un
+            self.Un[:] = self.Unp1
 
             # err = self.l2_error(self.Unp1, n * dt)
-            err = self.l2_error(self.Unp1, n*dt)
-
+            err = self.l2_error(self.Unp1, (n+1)*dt)
 
             errors.append(err)
-
-            if n == Nt:
-                self.l2_error(self.Unp1, n*dt, True)
 
             # Store data if required
             if store_data > 0 and n % store_data == 0:
@@ -201,11 +165,10 @@ class Wave2D:
         if store_data > 0:
             return stored_data
         else:
-            # err = self.l2_error(self.Unp1, Nt * dt)
             return self.h, errors
-        
-        
-    def convergence_rates(self, m=4, cfl=0.05, Nt=10, mx=3, my=3):
+
+
+    def convergence_rates(self, m=4, cfl=0.1, Nt=10, mx=3, my=3):
         """Compute convergence rates for a range of discretizations
 
         Parameters
@@ -231,40 +194,15 @@ class Wave2D:
         N0 = 8
         for m in range(m):
             dx, err = self(N0, Nt, cfl=cfl, mx=mx, my=my, store_data=-1)
-            plt.figure()
-            t_values = np.array(range(1, Nt + 1))
-            plt.plot(t_values*self.dt, err, marker='o')
-            plt.xlabel('Time Step')
-            plt.ylabel('L2 Error')
-            plt.title('L2 Error at Each Time Step')
-            plt.show()
             E.append(err[-1])
             h.append(dx)
             N0 *= 2
             Nt *= 2
-        r = [np.log(E[i - 1] / E[i]) / np.log(h[i - 1] / h[i]) for i in range(1, m+1, 1)]
-        print('E:', E,'\n')
+        r = [np.log(E[i-1]/E[i])/np.log(h[i-1]/h[i]) for i in range(1, m+1, 1)]
         return r, np.array(E), np.array(h)
-
-class Wave2D_Neumann(Wave2D):
-
-    def D2(self, N):
-        D = super().D2(N).toarray()  # Call the parent class's D2 and convert to dense array
-        D[0, :3] = [-2, 2, 0]
-        D[-1, -3:] = [0, 2, -2]
-        return sparse.csr_matrix(D)
-
-    def ue(self, mx, my):
-        """Return the exact standing wave"""
-        return sp.cos(mx*sp.pi*x)*sp.cos(my*sp.pi*y)*sp.cos(self.w*t)
-
-    def apply_bcs(self):
-        self.Unp1[0, :] = self.Unp1[1, :]
-        self.Unp1[-1, :] = self.Unp1[-2, :]
-        self.Unp1[:, 0] = self.Unp1[:, 1]
-        self.Unp1[:, -1] = self.Unp1[:, -2]
-
-def plot(xij, yij, data):
+    
+    
+def plot(xij, yij, data, title):
     fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
 
     z_min = np.min([np.min(matrix) for matrix in data.values()])
@@ -299,14 +237,31 @@ def plot(xij, yij, data):
     ani = animation.FuncAnimation(fig, animate_wireframe, frames=frames, init_func=init_wireframe, interval=interval, blit=True, repeat_delay=1000)
     # ani = animation.FuncAnimation(fig, animate_surface, frames=frames, init_func=init_surface, interval=interval, blit=True, repeat_delay=1000)
 
-    ani.save('wavemovie2d.gif', writer='pillow', fps=FPS)
+    ani.save(f'wavemovie2d_{title}.gif', writer='pillow', fps=FPS)
 
+class Wave2D_Neumann(Wave2D):
+
+    def D2(self, N):
+        D = sparse.diags([1, -2, 1], [-1, 0, 1], (N+1, N+1), 'lil')
+        D[0, :2] = -2, 2
+        D[-1, -2:] = 2, -2
+        return D / self.h ** 2
+
+    def ue(self, mx, my):
+        """Return the exact standing wave"""
+        return sp.cos(mx * sp.pi * x) * sp.cos(my * sp.pi * y) * sp.cos(self.w * t)
+
+    def apply_bcs(self):
+        pass
+        # self.Unp1[0, :] = self.Unp1[1, :]
+        # self.Unp1[-1, :] = self.Unp1[-2, :]
+        # self.Unp1[:, 0] = self.Unp1[:, 1]
+        # self.Unp1[:, -1] = self.Unp1[:, -2]
 
 
 def test_convergence_wave2d():
     sol = Wave2D()
     r, E, h = sol.convergence_rates(mx=2, my=3)
-    print(E)
     assert abs(r[-1]-2) < 1e-2
 
 def test_convergence_wave2d_neumann():
@@ -315,26 +270,45 @@ def test_convergence_wave2d_neumann():
     assert abs(r[-1]-2) < 0.05
 
 def test_exact_wave2d():
-    raise NotImplementedError
+    N = 10
+    Nt = 2
+
+    wave2d_solver_D = Wave2D()
+    wave2d_solver_N = Wave2D_Neumann()
+
+    dx, err_D = wave2d_solver_D(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=-1)
+    dx, err_N = wave2d_solver_N(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=-1)
+
+    assert err_D[-1] and err_N[-1] < 1e-15
 
 if __name__=='__main__':
     test_convergence_wave2d()
-    # test_convergence_wave2d_neumann()
+    test_convergence_wave2d_neumann()
+    test_exact_wave2d()
+
+    # N = 100 # The number of uniform intervals in each direction
+    # Nt = 100 # Number of time steps
+
+    # # Extract the mesh grids for plotting
+    # xij = wave2d_solver.xij
+    # yij = wave2d_solver.yij
+
+    # # Create an instance and solve
+    # wave2d_solver = Wave2D()
+    # dx, err = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=-1)
+    # data = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=1)
 
 
-    # Create an instance and solve
-    wave2d_solver = Wave2D()
-    N = 100 # The number of uniform intervals in each direction
-    Nt = 250 # Number of time steps
+    # print('Making the animation of the solution. This may take some time.')
+    # plot(xij, yij, data, title='Dirichlet')
 
-    print('Starting to solve the 2d wave equation.')
-    data = wave2d_solver(N, Nt, cfl=0.05, c=1, mx=3, my=3, store_data=1)
-    print('Finished solving the 2d wave equation.')
 
-    # Extract the mesh grids for plotting
-    xij = wave2d_solver.xij
-    yij = wave2d_solver.yij
+    # # Create an instance and solve
+    # wave2d_solver = Wave2D_Neumann()
+    # dx, err = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=-1)
+    # data = wave2d_solver(N, Nt, cfl=1/np.sqrt(2), c=1, mx=3, my=3, store_data=1)
 
-    print('Making the animation of the solution.')
-    plot(xij, yij, data)
+
+    # print('Making the animation of the solution. This may take some time.')
+    # plot(xij, yij, data, title='Neumann')
 
